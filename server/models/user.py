@@ -11,4 +11,4 @@ class User(Base):
     is_admin = Column(Boolean, nullable=False)
     phone_number = Column(String(10), unique=True, nullable=False)
 
-    basket_user_rel = relationship("Basket", backref="users")
+    
