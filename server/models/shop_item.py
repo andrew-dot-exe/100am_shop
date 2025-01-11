@@ -11,4 +11,4 @@ class ShopItem(Base):
     description = Column(Text, nullable=True)
     path_to_photo = Column(String, nullable=True)
 
-    basket_shopitem_rel = relationship("Basket", back_populates="shop_items")
+    basket_shopitem_rel = relationship("Basket", backref="shop_items")
