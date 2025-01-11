@@ -1,5 +1,5 @@
 # 100am_shop
-One-week's project. Stack: FastAPI, Vue.JS, SQLAlchemy
+not one-week project. Stack: FastAPI, Vue.JS, SQLAlchemy
 
 ## Постановка задачи. Первое приближение
 Реализовать REST-ful интернет магазин
