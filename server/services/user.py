@@ -1,12 +1,19 @@
 import bcrypt
-from datetime import timedelta
-from sqlalchemy.orm import Session
+import datetime
+import jwt
 
-from models.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import update
+
+from ..models.user import User
+from ..dto.user import UserLoginCredentials, UserInDB, TokenPayload
+
 
 class UserAuth:
     
-    def hash_password(self, password : bytes) -> bytes:
+    @staticmethod
+    def hash_password(password : str) -> str:
         """
         Функция хэширования пароля
         Принимает пароль в формате строки с кодировкой UTF-8 и 
@@ -15,82 +22,173 @@ class UserAuth:
         """
         salt = bcrypt.gensalt()
         return bcrypt.hashpw(
-            password,
-            salt)
+            password.encode('utf-8'),
+            salt).decode('utf-8')
 
-    def check_password(self, hash: bytes, base_hash: bytes) -> bool:
+    @staticmethod
+    def check_password(hash: str, base_hash: str) -> bool:
         """
         Проверка пароля используя проверку bcrypt.
+        Хэш с базы почему-то в виде str, хотя должен быть как bytes
         """
-        return bcrypt.checkpw(hash, base_hash)
+        return bcrypt.checkpw(hash.encode('utf-8'), base_hash.encode('utf-8'))
     
-    def create_access_token(self, userData: dict, expire_delta: timedelta) -> str:
-        return "token"
+    @staticmethod
+    def create_access_token(userData: TokenPayload, secret_key:str, algorithm: str) -> str:
+        """
+        Создает JWT-токен
+        """
+        encoded_user = userData.model_dump()
+        token = jwt.encode(
+            payload=encoded_user, 
+            key=secret_key, 
+            algorithm=algorithm)
+        return token
     
-    def decode_token(self, token: str) -> None:
-        raise NotImplementedError
+    @staticmethod
+    def decode_token(token: str, secret_key: str, algorithm: str) -> TokenPayload:
+        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+        decoded_payload = TokenPayload(login=payload['login'],
+                                        is_admin=payload['is_admin'],
+                                        expire_time=payload['expire_time'])
+        return decoded_payload
+
+    @staticmethod
+    def async_create_access_token(userData: TokenPayload, secret_key:str, algorithm: str) -> str:
+        """
+        Создает JWT-токен
+        """
+        encoded_user = userData.model_dump()
+        token = jwt.encode(encoded_user, secret_key, algorithm)
+        return token
+    
+    @staticmethod
+    def async_decode_token(token: str, secret_key: str, algorithm: str) -> TokenPayload:
+        payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+        decoded_payload = TokenPayload(login=payload['login'],
+                                        is_admin=payload['is_admin'],
+                                        expire_time=payload['expire_time'])
+        return decoded_payload
 
 class UserDBaseManagement:
-    def __init__(self, session : Session):
+    def __init__(self, session: AsyncSession):
         self.session = session
     
-    def add_user(self, login : str, password: bytes, phone_number: str, is_admin : bool = False):
+    async def get_hashed_psw_from_db(self, login: str) -> str:
         """
-        Создает пользователя в базе данных
+        Retrieves the hashed password for a user by their login.
         """
-        usr = User(login=login,
-                   password_hash=password,
-                   phone_number=phone_number,
-                   is_admin=is_admin)
-        self.session.add(usr)
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user = result.scalars().first()
+        if not user:
+            return None
+        return user.password_hash
     
-    def delete_user(self, login: str):
+    async def user_is_admin(self, login: str) -> bool:
         """
-        Удаляет пользователя из базы данных
+        Checks if a user is an admin by their login.
         """
-        user_to_delete = self.session.query(User).filter(User.login == login).first()
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user = result.scalars().first()
+        if not user:
+            return None
+        return user.is_admin
+    
+    async def add_user(self, login: str, password: str, phone_number: str, is_admin: bool = False):
+        """
+        Adds a new user to the database.
+        """
+        usr = User(login=login, password_hash=password, phone_number=phone_number, is_admin=is_admin)
+        async with self.session.begin():
+            self.session.add(usr)
+            await self.session.commit()
+    
+    async def delete_user(self, login: str):
+        """
+        Deletes a user from the database by their login.
+        """
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user_to_delete = result.scalars().first()
         if not user_to_delete:
-            raise RuntimeError
-        self.session.delete(user_to_delete)
+            raise RuntimeError("User not found")
+        await self.session.delete(user_to_delete)
+        await self.session.commit()
     
-    def update_password(self, login: str, new_password: bytes):
+    async def update_password(self, login: str, new_password: str):
         """
-        Изменяет пароль на новый для пользователя по логину
+        Updates the password for a user by their login.
         """
-        user = self.session.query(User).filter(User.login == login).first()
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user = result.scalars().first()
         if not user:
-            raise RuntimeError
+            raise RuntimeError("User not found")
         user.password_hash = new_password
-        
+        await self.session.commit()
     
-    def update_phone_number(self, login: str, new_phone_number: str):
+    async def update_phone_number(self, login: str, new_phone_number: str):
         """
-        Изменяет номер телефона для пользователя по логину
+        Updates the phone number for a user by their login.
         """
-        user = self.session.query(User).filter(User.login == login).first()
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user = result.scalars().first()
         if not user:
-            raise RuntimeError
+            raise RuntimeError("User not found")
         user.phone_number = new_phone_number
+        await self.session.commit()
     
-    def update_admin(self, login: str, new_permission: bool):
+    async def update_admin(self, login: str, new_permission: bool):
         """
-        Изменяет статус права администрирования для пользователя по логину
+        Updates the admin permission for a user by their login.
         """
-        user = self.session.query(User).filter(User.login == login).first()
+        result = await self.session.execute(select(User).filter(User.login == login))
+        user = result.scalars().first()
         if not user:
-            raise RuntimeError
+            raise RuntimeError("User not found")
         user.is_admin = new_permission
+        await self.session.commit()
     
-    def save_changes(self):
-        self.session.commit()
+    async def save_changes(self):
+        """
+        Commits the changes to the database.
+        """
+        await self.session.commit()
+
         
         
-class UserService:
+class UserController:
+    secret: str ="secret-from-dotenvs"
+    algorithm = "HS256"
     
-    def __init__(self, session: Session):
+    def __init__(self, session: AsyncSession, secret : str, algorithm: str):
         self.session = session
+        self.database_manager = UserDBaseManagement(session)    
+        self.secret = secret
+        self.algorithm = algorithm
+        if secret == None:
+            raise TypeError("No secret provided!")
+    
+    async def login(self, userCredentials: UserLoginCredentials) -> str:
         
-    def login(self, userCredentials: dict):
-        pass
-    
-    
+        hashed_psw =  await self.database_manager.get_hashed_psw_from_db(userCredentials.login)
+        if hashed_psw == None:
+            raise ValueError("User not found")
+        check_login = UserAuth.check_password(userCredentials.password, hashed_psw)
+        if check_login:
+            expire = datetime.datetime.now() + datetime.timedelta(
+                                        minutes=30)
+            payload = TokenPayload(login=userCredentials.login, 
+                                    is_admin=False,
+                                    expire_time= "mamu_ebal"
+                                    )
+            token = UserAuth.create_access_token(payload, self.secret, self.algorithm)
+            return token
+        
+    async def register_user(self, userInfo:UserInDB):
+        hashed_psw = UserAuth.hash_password(userInfo.password)
+        await self.database_manager.add_user(
+            userInfo.login,
+            hashed_psw,
+            userInfo.phone_number,
+            userInfo.is_admin
+        )
+        

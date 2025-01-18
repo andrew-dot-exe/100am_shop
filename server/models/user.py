@@ -7,7 +7,7 @@ class User(Base):
     __tablename__ = 'users'
 
     login = Column(String(50), unique=True, nullable=False, primary_key=True)
-    password_hash = Column(LargeBinary(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)
     is_admin = Column(Boolean, nullable=False)
     phone_number = Column(String(10), unique=True, nullable=False)
 
