@@ -1,3 +1,6 @@
+#venvs
+
+100am_server/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
