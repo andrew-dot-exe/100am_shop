@@ -259,4 +259,4 @@ async def generate_shop_items(num_items=100000):
             print(f"Произошла ошибка: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(generate_shop_items(100000))
+    asyncio.run(generate_shop_items(1000))

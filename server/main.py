@@ -16,13 +16,12 @@ from services.shop_item import ShopController
 from services.user import UserController
 from dto.user import UserLoginCredentials, UserInDB
 
-
 from models import Base
 
 logger = logging.getLogger('uvicorn.error')
 logger.setLevel(logging.DEBUG)
 
-#load variables from .env
+# load variables from .env
 try:
     load_dotenv()
 except FileNotFoundError:
@@ -32,16 +31,22 @@ SECRET_KEY = os.getenv('SECRET_KEY') or "null"
 ALGORITHM = os.getenv('ALGORITHM') or "HS256"
 DBASE_CONN_STRING = os.getenv('DATABASE_CONN_STRING') or "sqlite://memory"
 
-#database setup
+# database setup
 dbase_engine = create_async_engine(DBASE_CONN_STRING)
 dbase_async_session = sessionmaker(
-    dbase_engine, class_=AsyncSession #type:ignore
-) #type: ignore
+    dbase_engine, class_=AsyncSession  # type:ignore
+)  # type: ignore
+
 
 async def get_session():
-    async with dbase_async_session() as session: #type: ignore
+    async with dbase_async_session() as session:  # type: ignore
         logger.debug(type(session))
         yield session
+
+
+async def create_tables():
+    async with dbase_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def get_user_controller(
@@ -51,6 +56,7 @@ async def get_user_controller(
     controller = UserController(session, SECRET_KEY, ALGORITHM)
     yield controller
 
+
 async def get_shop_controller(session: AsyncSession = Depends(get_session)):
     controller = ShopController(session)
     yield controller
@@ -58,6 +64,7 @@ async def get_shop_controller(session: AsyncSession = Depends(get_session)):
 app = FastAPI()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
 
 def custom_openapi():
     if app.openapi_schema:
@@ -81,12 +88,15 @@ def custom_openapi():
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
+
 app.openapi = custom_openapi
+
 
 @app.on_event("startup")
 async def startup():
     async with dbase_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 @app.get('/')
 async def get_root():
@@ -97,9 +107,10 @@ async def get_root():
 
 @app.post('/login')
 async def login_route(credentials: UserLoginCredentials,
-                      user_controller: UserController = Depends(get_user_controller)):#
+                      user_controller: UserController = Depends(get_user_controller)):
     token = await user_controller.login(credentials)
     return {"token": token}
+
 
 @app.post('/register')
 async def register_route(user_db: UserInDB,
@@ -107,19 +118,28 @@ async def register_route(user_db: UserInDB,
     await user_controller.register_user(user_db)
     return {'result': user_db.login}
 
+
 @app.get('/whoami')
 async def whoami_route():
     return "null"
 
+
 @app.get('/items')
 async def get_shop_items_route(count: int,
-    shop_controller: ShopController = Depends(get_shop_controller)):
-    return {"null"}
+                               shop_controller: ShopController = Depends(get_shop_controller)):
+    items = await shop_controller.get_nth_items(count)
+    return items
 
-@app.get('/item/{article}')
-async def get_shop_item_info_route():
-    pass
+
+@app.get("/item/{article}")
+async def get_shop_item_info_route(article: int,
+                                   shop_controller: ShopController = Depends(get_shop_controller)):
+    info = await shop_controller.get_item_info(article)
+    return info
 
 
 if __name__ == '__main__':
-    uvicorn.run(app=app, reload=True)
+    import asyncio
+    asyncio.run(create_tables())
+    print("tables has been created. If you want to run the server, use fastapi dev instead")
+    # uvicorn.run(app=app, reload=True)

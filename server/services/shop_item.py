@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from dto.shop_items import ShopItem as DTOShopItem
+from dto.shop_items import ShopItemShort as ShortDTOItem
 from models.shop_item import ShopItem
 
 
@@ -21,7 +22,13 @@ class ShopController:
             exec = await self.session.execute(query)  # Выполняем запрос
             response = exec.scalars().all()  # Получаем все результаты
             for row in response:
-                result.append(row)  # Добавляем каждый результат в список
+                # результаты должны быть в формате DTO
+                converted = ShortDTOItem(
+                    article=row.article,
+                    name=row.name,
+                    price=row.price
+                )
+                result.append(converted.model_dump_json())  # Добавляем каждый результат в список
         return result
 
     async def get_item_info(self, article: int):
@@ -29,7 +36,14 @@ class ShopController:
         async with self.session.begin():
             exec = await self.session.execute(query)
             response = exec.scalars().one()
-            return response
+            conv = DTOShopItem(
+                article=response.article,
+                name=response.name,
+                price= response.price,
+                description=response.description,
+                path_to_photo=response.path_to_photo
+            )
+            return conv
 
 
     async def add_item(self, item: DTOShopItem):

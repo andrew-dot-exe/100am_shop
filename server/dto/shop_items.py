@@ -11,4 +11,4 @@ class ShopItem(BaseModel):
 class ShopItemShort(BaseModel):
     article: int
     name: str
-    price: float
+    price: Decimal
